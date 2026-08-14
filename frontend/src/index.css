@@ -1,0 +1,131 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+}
+
+body {
+  margin: 0;
+  background-color: #080d1a;
+  color: #f1f5f9;
+  font-family: 'Inter', sans-serif;
+  overflow-x: hidden;
+}
+
+/* Custom Scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: rgba(15, 23, 42, 0.6);
+}
+
+::-webkit-scrollbar-thumb {
+  background: #334155;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #475569;
+}
+
+/* Ant Design Dark Custom Overrides */
+.ant-modal .ant-modal-content {
+  background-color: #0f172a !important;
+  border: 1px solid #334155 !important;
+  border-radius: 12px !important;
+  color: #f8fafc !important;
+}
+
+.ant-modal-header {
+  background-color: transparent !important;
+}
+
+.ant-modal-title {
+  color: #f8fafc !important;
+  font-weight: 600 !important;
+}
+
+.ant-modal-close {
+  color: #94a3b8 !important;
+}
+
+.ant-input, .ant-input-password, .ant-select-selector {
+  background-color: #1e293b !important;
+  border-color: #334155 !important;
+  color: #f8fafc !important;
+}
+
+.ant-select-dropdown {
+  background-color: #0f172a !important;
+  border: 1px solid #334155 !important;
+}
+
+.ant-select-item-option-content {
+  color: #e2e8f0 !important;
+}
+
+.ant-select-item-option-selected {
+  background-color: #1e293b !important;
+}
+
+.ant-table {
+  background: transparent !important;
+  color: #e2e8f0 !important;
+}
+
+.ant-table-thead > tr > th {
+  background: #0f172a !important;
+  color: #94a3b8 !important;
+  border-bottom: 1px solid #1e293b !important;
+  font-weight: 600 !important;
+}
+
+.ant-table-tbody > tr > td {
+  border-bottom: 1px solid #1e293b !important;
+  color: #f8fafc !important;
+}
+
+.ant-table-tbody > tr:hover > td {
+  background: rgba(30, 41, 59, 0.5) !important;
+}
+
+.ant-pagination-item {
+  background: #1e293b !important;
+  border-color: #334155 !important;
+}
+
+.ant-pagination-item a {
+  color: #cbd5e1 !important;
+}
+
+.ant-pagination-item-active {
+  background: #2563eb !important;
+  border-color: #3b82f6 !important;
+}
+
+.ant-pagination-item-active a {
+  color: #ffffff !important;
+}
+
+/* Glassmorphism Cards */
+.glass-panel {
+  background: rgba(15, 23, 42, 0.75);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(51, 65, 85, 0.6);
+}
+
+.glass-panel-hover {
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.glass-panel-hover:hover {
+  border-color: rgba(96, 165, 250, 0.4);
+  box-shadow: 0 10px 25px -5px rgba(15, 23, 42, 0.5), 0 0 15px 0 rgba(59, 130, 246, 0.1);
+  transform: translateY(-1px);
+}

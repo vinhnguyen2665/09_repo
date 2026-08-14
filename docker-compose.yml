@@ -1,0 +1,31 @@
+version: '3.8'
+
+services:
+  zero9repo:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: zero9repo-manager
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      - HOST=0.0.0.0
+      - PORT=8000
+      - SECRET_KEY=zero9repo-production-key-change-me-2026
+      - DATABASE_URL=sqlite+aiosqlite:////app/data/zero9repo.db
+      - ADMIN_USERNAME=admin
+      - ADMIN_PASSWORD=admin123
+      - ADMIN_EMAIL=admin@zero9repo.io
+    volumes:
+      - zero9repo_data:/app/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/stats/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  zero9repo_data:
+    driver: local
