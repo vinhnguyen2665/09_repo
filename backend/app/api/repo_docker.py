@@ -1,14 +1,26 @@
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status, Query
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.rbac import authenticate_user_from_request
 from app.models.user import UserRole
+from app.models.repository import Repository
 from app.services.docker_engine import docker_engine
 from app.core.config import settings
 
 router = APIRouter(prefix="/v2", tags=["Docker / OCI Registry"])
+
+async def ensure_docker_online(db: AsyncSession):
+    stmt = select(Repository).where(Repository.name == docker_engine.DOCKER_REPO_NAME)
+    res = await db.execute(stmt)
+    repo = res.scalar_one_or_none()
+    if repo and not repo.is_online:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"Docker registry '{docker_engine.DOCKER_REPO_NAME}' is currently offline (Disabled for maintenance)"
+        )
 
 @router.get("", status_code=status.HTTP_200_OK)
 @router.get("/", status_code=status.HTTP_200_OK)
@@ -16,6 +28,7 @@ async def docker_v2_ping(request: Request, db: AsyncSession = Depends(get_db)):
     """
     Docker V2 API check. Standard `docker login` ping.
     """
+    await ensure_docker_online(db)
     user = await authenticate_user_from_request(request, db)
     if not user:
         return Response(
@@ -42,6 +55,7 @@ async def initiate_blob_upload(
     digest: Optional[str] = Query(None),
     db: AsyncSession = Depends(get_db)
 ):
+    await ensure_docker_online(db)
     user = await authenticate_user_from_request(request, db)
     if not user:
         raise HTTPException(
@@ -69,8 +83,10 @@ async def initiate_blob_upload(
 async def patch_blob_upload(
     name: str,
     upload_uuid: str,
-    request: Request
+    request: Request,
+    db: AsyncSession = Depends(get_db)
 ):
+    await ensure_docker_online(db)
     async def stream_gen():
         async for chunk in request.stream():
             yield chunk
@@ -86,6 +102,7 @@ async def complete_blob_upload(
     digest: Optional[str] = Query(None),
     db: AsyncSession = Depends(get_db)
 ):
+    await ensure_docker_online(db)
     async def stream_gen():
         async for chunk in request.stream():
             yield chunk
@@ -101,10 +118,12 @@ async def complete_blob_upload(
 # 4. Blob Get / Check (GET & HEAD)
 @router.get("/{name:path}/blobs/{digest}")
 async def get_blob(name: str, digest: str, db: AsyncSession = Depends(get_db)):
+    await ensure_docker_online(db)
     return await docker_engine.get_blob(db, name, digest, is_head=False)
 
 @router.head("/{name:path}/blobs/{digest}")
 async def head_blob(name: str, digest: str, db: AsyncSession = Depends(get_db)):
+    await ensure_docker_online(db)
     return await docker_engine.get_blob(db, name, digest, is_head=True)
 
 # 5. Manifest Upload (PUT)
@@ -115,6 +134,7 @@ async def put_manifest(
     request: Request,
     db: AsyncSession = Depends(get_db)
 ):
+    await ensure_docker_online(db)
     user = await authenticate_user_from_request(request, db)
     if not user:
         raise HTTPException(
@@ -132,13 +152,16 @@ async def put_manifest(
 # 6. Manifest Get / Check (GET & HEAD)
 @router.get("/{name:path}/manifests/{reference}")
 async def get_manifest(name: str, reference: str, db: AsyncSession = Depends(get_db)):
+    await ensure_docker_online(db)
     return await docker_engine.get_manifest(db, name, reference, is_head=False)
 
 @router.head("/{name:path}/manifests/{reference}")
 async def head_manifest(name: str, reference: str, db: AsyncSession = Depends(get_db)):
+    await ensure_docker_online(db)
     return await docker_engine.get_manifest(db, name, reference, is_head=True)
 
 # 7. List Tags
 @router.get("/{name:path}/tags/list")
 async def list_tags(name: str, db: AsyncSession = Depends(get_db)):
+    await ensure_docker_online(db)
     return await docker_engine.list_tags(db, name)

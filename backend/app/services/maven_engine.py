@@ -160,7 +160,7 @@ class MavenEngine:
             stmt = select(Repository).where(Repository.name == member_name)
             res = await db.execute(stmt)
             member_repo = res.scalar_one_or_none()
-            if not member_repo:
+            if not member_repo or not member_repo.is_online:
                 continue
 
             xml_bytes = None
