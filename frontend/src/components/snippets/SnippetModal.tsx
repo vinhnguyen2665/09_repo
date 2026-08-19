@@ -38,6 +38,19 @@ export const SnippetModal: React.FC<SnippetModalProps> = ({
     setTimeout(() => setCopiedKey(''), 2000);
   };
 
+  const handleTabChange = (tabKey: string) => {
+    setActiveTab(tabKey);
+    if (!repos) return;
+    const matchingRepos = repos.filter((r) => r.format === tabKey);
+    if (matchingRepos.length === 0) return;
+    const groupRepo = matchingRepos.find((r) => r.type === 'group');
+    if (groupRepo) {
+      setSelectedRepoName(groupRepo.name);
+    } else {
+      setSelectedRepoName(matchingRepos[0].name);
+    }
+  };
+
   // ================== SNIPPETS BUILDERS ==================
 
   const mavenSettingsXml = `<settings>
@@ -179,7 +192,7 @@ twine upload --repository-url ${origin}/repository/pypi-private/ dist/* -u __tok
         {/* Ecosystem Tabs */}
         <Tabs
           activeKey={activeTab}
-          onChange={setActiveTab}
+          onChange={handleTabChange}
           items={[
             {
               key: 'maven',

@@ -188,7 +188,7 @@ app.include_router(docker_router)
 app.include_router(dispatcher_router)
 
 # Mount frontend static distribution if available
-frontend_dist = Path("../frontend/dist").resolve()
+frontend_dist = Path("../../frontend/dist").resolve()
 if not frontend_dist.exists():
     frontend_dist = Path("./frontend/dist").resolve()
 

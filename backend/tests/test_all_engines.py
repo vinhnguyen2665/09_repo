@@ -241,4 +241,29 @@ async def test_full_zero9repo_suite():
         stats = resp.json()
         assert stats["storage"]["total_artifacts"] > 0
         assert stats["storage"]["total_repositories"] >= 10
+
+        # Test Group Repository Tree Merging
+        resp = await client.get("/api/storage/tree?repo_name=maven-group", headers=auth_headers)
+        assert resp.status_code == 200
+        group_tree = resp.json()
+        assert len(group_tree) > 0
+        node_names = [n["name"] for n in group_tree]
+        assert "com" in node_names or "org" in node_names
+
+        # Test inspecting an artifact inside a Group repository
+        resp = await client.get(
+            "/api/storage/inspect?repo_name=maven-group&path=com/zero9/demo/maven-metadata.xml",
+            headers=auth_headers
+        )
+        assert resp.status_code == 200
+        assert resp.json()["repo_name"] == "maven-private"
+
+        # Test previewing an artifact inside a Group repository
+        resp = await client.get(
+            "/api/storage/preview?repo_name=maven-group&path=com/zero9/demo/maven-metadata.xml",
+            headers=auth_headers
+        )
+        assert resp.status_code == 200
+        assert resp.json()["is_text"] is True
+
         print("\n=== ALL Zero9Repo BACKEND TESTS PASSED 100% ===")

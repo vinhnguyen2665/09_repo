@@ -210,7 +210,7 @@ class StorageService:
                 break
         return True
 
-    def build_file_tree(self, repo_name: str, max_depth: int = 5) -> List[Dict[str, Any]]:
+    def build_file_tree(self, repo_name: str, max_depth: int = 15) -> List[Dict[str, Any]]:
         repo_dir = (self.base_dir / repo_name).resolve()
         if not repo_dir.exists() or not repo_dir.is_dir():
             return []

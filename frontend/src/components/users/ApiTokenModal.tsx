@@ -65,6 +65,32 @@ export const ApiTokenModal: React.FC<ApiTokenModalProps> = ({ isOpen, onClose })
       ),
     },
     {
+      title: 'Token',
+      key: 'copy_token',
+      render: (_: any, record: ApiToken) => {
+        const isNewToken = createdRawToken && createdRawToken.startsWith(record.token_prefix);
+        if (isNewToken) {
+          return (
+            <Button
+              type="primary"
+              ghost
+              size="small"
+              icon={copied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+              onClick={handleCopyRawToken}
+              className="border-blue-500/40 text-blue-400 text-[10px] h-7 px-2.5 rounded-lg flex items-center gap-1 hover:border-blue-400"
+            >
+              {copied ? 'Copied' : 'Copy'}
+            </Button>
+          );
+        }
+        return (
+          <span className="text-[10px] text-slate-500 italic font-mono select-none">
+            [Hashed]
+          </span>
+        );
+      }
+    },
+    {
       title: 'Created At',
       dataIndex: 'created_at',
       key: 'created_at',

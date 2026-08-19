@@ -26,6 +26,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (!token) {
       setUser(null);
       setIsLoading(false);
+      setIsLoginModalOpen(true);
       return;
     }
     try {
@@ -34,6 +35,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } catch {
       setUser(null);
       localStorage.removeItem('z9r_access_token');
+      setIsLoginModalOpen(true);
     } finally {
       setIsLoading(false);
     }

@@ -19,18 +19,46 @@ import {
   ExternalLink,
   ShieldAlert,
   CheckCircle2,
-  XCircle
+  XCircle,
+  LogIn
 } from 'lucide-react';
 import { Button, Tag, Input, Modal, message, Segmented, Spin, Empty } from 'antd';
 import { Repository, RepoFormat, RepoType } from '../../types';
+import { useAuth } from '../../context/AuthContext';
 
 interface RepositoryManagerProps {
   onOpenSnippetWithRepo: (repoName: string) => void;
 }
 
 export const RepositoryManager: React.FC<RepositoryManagerProps> = ({ onOpenSnippetWithRepo }) => {
+  const { isAuthenticated, openLoginModal } = useAuth();
   const { data: repos, isLoading } = useRepositories();
   const deleteMutation = useDeleteRepository();
+
+  if (!isAuthenticated) {
+    return (
+      <div className="glass-panel rounded-3xl p-12 text-center max-w-lg mx-auto my-12 space-y-6 border border-slate-800 shadow-2xl">
+        <div className="w-16 h-16 rounded-2xl bg-gradient-to-tr from-blue-600 to-indigo-600 flex items-center justify-center mx-auto shadow-lg shadow-blue-500/20">
+          <ShieldAlert className="w-8 h-8 text-white" />
+        </div>
+        <div className="space-y-2">
+          <h2 className="text-xl font-bold text-slate-100">Sign In Required</h2>
+          <p className="text-sm text-slate-400">
+            Please sign in to view and manage your Hosted, Proxy, and Group repositories.
+          </p>
+        </div>
+        <Button
+          type="primary"
+          size="large"
+          icon={<LogIn className="w-4 h-4" />}
+          onClick={openLoginModal}
+          className="bg-blue-600 hover:bg-blue-500 border-none font-semibold text-sm h-11 px-8 rounded-xl shadow-lg shadow-blue-600/30 flex items-center gap-2 mx-auto"
+        >
+          Sign In Now
+        </Button>
+      </div>
+    );
+  }
 
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [editingRepo, setEditingRepo] = useState<Repository | null>(null);

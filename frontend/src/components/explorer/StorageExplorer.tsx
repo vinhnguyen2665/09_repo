@@ -20,15 +20,267 @@ import {
   Clock, 
   Layers,
   ChevronRight,
-  ChevronDown
+  ChevronDown,
+  ShieldAlert,
+  LogIn,
+  Terminal
 } from 'lucide-react';
-import { Select, Input, Button, Tag, Modal, message, Empty, Spin } from 'antd';
+import { Select, Input, Button, Tag, Modal, message, Empty, Spin, Tabs } from 'antd';
 import { FileTreeNode } from '../../types';
+import { useAuth } from '../../context/AuthContext';
+
+interface MavenDependency {
+  groupId: string;
+  artifactId: string;
+  version: string;
+  fileName: string;
+}
+
+interface NpmDependency {
+  packageName: string;
+  version: string;
+}
+
+interface DockerDependency {
+  imageName: string;
+  tag: string;
+}
+
+interface PypiDependency {
+  packageName: string;
+  version: string;
+}
+
+const parseMavenPath = (path: string): MavenDependency | null => {
+  const parts = path.split('/');
+  if (parts.length < 4) return null;
+  const fileName = parts[parts.length - 1];
+  const version = parts[parts.length - 2];
+  const artifactId = parts[parts.length - 3];
+  const groupId = parts.slice(0, parts.length - 3).join('.');
+  if (!groupId || !artifactId || !version) return null;
+  return { groupId, artifactId, version, fileName };
+};
+
+const parseNpmPath = (path: string): NpmDependency | null => {
+  if (!path) return null;
+  const normPath = path.replace(/\\/g, '/');
+
+  // Case 1: contains /-/ (tarball file)
+  if (normPath.includes('/-/')) {
+    const parts = normPath.split('/-/');
+    if (parts.length >= 2) {
+      const packageName = parts[0];
+      const filename = parts[parts.length - 1];
+      const match = filename.match(/-(\d+\.\d+\.\d+.*?)\.tgz$/);
+      const version = match ? match[1] : 'latest';
+      return { packageName, version };
+    }
+  }
+
+  // Case 2: ends with package.json
+  if (normPath.endsWith('/package.json')) {
+    const packageName = normPath.substring(0, normPath.length - '/package.json'.length);
+    return { packageName, version: 'latest' };
+  }
+
+  // Case 3: generic file under npm format, e.g. "lodash/somefile.txt"
+  const parts = normPath.split('/');
+  if (parts.length >= 2 && parts[0].startsWith('@')) {
+    const packageName = `${parts[0]}/${parts[1]}`;
+    return { packageName, version: 'latest' };
+  } else if (parts.length >= 1) {
+    const packageName = parts[0];
+    return { packageName, version: 'latest' };
+  }
+
+  return null;
+};
+
+const parseDockerPath = (path: string): DockerDependency | null => {
+  if (!path) return null;
+  const normPath = path.replace(/\\/g, '/');
+  if (!normPath.startsWith('manifests/')) return null;
+  const cleanPath = normPath.substring('manifests/'.length);
+  const parts = cleanPath.split('/');
+  if (parts.length < 2) return null;
+  const tagWithExt = parts[parts.length - 1];
+  if (!tagWithExt.endsWith('.json')) return null;
+  const tag = tagWithExt.substring(0, tagWithExt.length - '.json'.length);
+  const imageName = parts.slice(0, parts.length - 1).join('/');
+  return { imageName, tag };
+};
+
+const parsePypiPath = (path: string): PypiDependency | null => {
+  if (!path) return null;
+  const normPath = path.replace(/\\/g, '/');
+  if (!normPath.startsWith('packages/')) return null;
+  const filename = normPath.substring('packages/'.length);
+  let cleanName = filename;
+  if (filename.endsWith('.whl')) {
+    cleanName = filename.substring(0, filename.length - '.whl'.length);
+  } else if (filename.endsWith('.tar.gz')) {
+    cleanName = filename.substring(0, filename.length - '.tar.gz'.length);
+  } else if (filename.endsWith('.zip')) {
+    cleanName = filename.substring(0, filename.length - '.zip'.length);
+  } else {
+    return null;
+  }
+  const parts = cleanName.split('-');
+  if (parts.length < 2) return null;
+  let versionIndex = -1;
+  for (let i = 1; i < parts.length; i++) {
+    if (/^\d/.test(parts[i])) {
+      versionIndex = i;
+      break;
+    }
+  }
+  if (versionIndex === -1) {
+    versionIndex = 1;
+  }
+  const packageName = parts.slice(0, versionIndex).join('-');
+  const version = parts[versionIndex];
+  return { packageName, version };
+};
+
+const getMavenDependencySnippets = (dep: MavenDependency) => {
+  const { groupId, artifactId, version } = dep;
+  return [
+    {
+      key: 'maven',
+      label: 'Maven',
+      code: `<dependency>\n  <groupId>${groupId}</groupId>\n  <artifactId>${artifactId}</artifactId>\n  <version>${version}</version>\n</dependency>`
+    },
+    {
+      key: 'gradle-groovy',
+      label: 'Gradle (Groovy)',
+      code: `implementation '${groupId}:${artifactId}:${version}'`
+    },
+    {
+      key: 'gradle-kotlin',
+      label: 'Gradle (Kotlin)',
+      code: `implementation("${groupId}:${artifactId}:${version}")`
+    },
+    {
+      key: 'sbt',
+      label: 'SBT',
+      code: `libraryDependencies += "${groupId}" % "${artifactId}" % "${version}"`
+    },
+    {
+      key: 'mill',
+      label: 'Mill',
+      code: `ivy"${groupId}:${artifactId}:${version}"`
+    },
+    {
+      key: 'ivy',
+      label: 'Ivy',
+      code: `<dependency org="${groupId}" name="${artifactId}" rev="${version}" />`
+    },
+    {
+      key: 'grape',
+      label: 'Grape',
+      code: `@Grapes(\n  @Grab(group='${groupId}', module='${artifactId}', version='${version}')\n)`
+    },
+    {
+      key: 'leiningen',
+      label: 'Leiningen',
+      code: `[${groupId}/${artifactId} "${version}"]`
+    },
+    {
+      key: 'buildr',
+      label: 'Buildr',
+      code: `'${groupId}:${artifactId}:jar:${version}'`
+    }
+  ];
+};
+
+const getNpmDependencySnippets = (dep: NpmDependency) => {
+  const { packageName, version } = dep;
+  return [
+    {
+      key: 'npm',
+      label: 'npm',
+      code: `npm install ${packageName}@${version}`
+    },
+    {
+      key: 'yarn',
+      label: 'Yarn',
+      code: `yarn add ${packageName}@${version}`
+    },
+    {
+      key: 'pnpm',
+      label: 'pnpm',
+      code: `pnpm add ${packageName}@${version}`
+    },
+    {
+      key: 'bun',
+      label: 'Bun',
+      code: `bun add ${packageName}@${version}`
+    }
+  ];
+};
+
+const getDockerDependencySnippets = (dep: DockerDependency) => {
+  const { imageName, tag } = dep;
+  const host = window.location.host;
+  return [
+    {
+      key: 'docker-pull',
+      label: 'Docker Pull',
+      code: `docker pull ${host}/${imageName}:${tag}`
+    },
+    {
+      key: 'docker-tag',
+      label: 'Docker Tag',
+      code: `docker tag ${imageName}:${tag} ${host}/${imageName}:${tag}`
+    },
+    {
+      key: 'docker-push',
+      label: 'Docker Push',
+      code: `docker push ${host}/${imageName}:${tag}`
+    },
+    {
+      key: 'docker-run',
+      label: 'Docker Run',
+      code: `docker run -d ${host}/${imageName}:${tag}`
+    }
+  ];
+};
+
+const getPypiDependencySnippets = (dep: PypiDependency, repoName: string) => {
+  const { packageName, version } = dep;
+  const origin = window.location.origin;
+  return [
+    {
+      key: 'pip-index',
+      label: 'pip (index)',
+      code: `pip install --index-url ${origin}/repository/${repoName}/simple/ ${packageName}==${version}`
+    },
+    {
+      key: 'pip-simple',
+      label: 'pip install',
+      code: `pip install ${packageName}==${version}`
+    },
+    {
+      key: 'requirements',
+      label: 'requirements.txt',
+      code: `--index-url ${origin}/repository/${repoName}/simple/\n${packageName}==${version}`
+    },
+    {
+      key: 'poetry',
+      label: 'Poetry',
+      code: `# Add source to pyproject.toml first\npoetry add ${packageName}==${version}`
+    }
+  ];
+};
 
 export const StorageExplorer: React.FC = () => {
+  const { isAuthenticated, openLoginModal } = useAuth();
   const { data: repos, isLoading: reposLoading } = useRepositories();
   const [selectedRepo, setSelectedRepo] = useState<string>('maven-private');
   const [selectedFilePath, setSelectedFilePath] = useState<string>('');
+  const [activeSnippetTab, setActiveSnippetTab] = useState<string>('maven');
+  const [copiedSnippetKey, setCopiedSnippetKey] = useState<string>('');
   const [expandedFolders, setExpandedFolders] = useState<Record<string, boolean>>({});
   const [searchTerm, setSearchTerm] = useState<string>('');
   const [previewOpen, setPreviewOpen] = useState<boolean>(false);
@@ -37,6 +289,49 @@ export const StorageExplorer: React.FC = () => {
   const { data: treeNodes, isLoading: treeLoading } = useFileTree(selectedRepo);
   const { data: artifactDetails, isLoading: inspectLoading } = useInspectArtifact(selectedRepo, selectedFilePath);
   const deleteMutation = useDeleteArtifact();
+
+  const currentRepo = repos?.find((r) => r.name === selectedRepo);
+  const isMaven = currentRepo?.format === 'maven';
+  const isNpm = currentRepo?.format === 'npm';
+  const isDocker = currentRepo?.format === 'docker';
+  const isPypi = currentRepo?.format === 'pypi';
+
+  const mavenDep = isMaven ? parseMavenPath(selectedFilePath) : null;
+  const npmDep = isNpm ? parseNpmPath(selectedFilePath) : null;
+  const dockerDep = isDocker ? parseDockerPath(selectedFilePath) : null;
+  const pypiDep = isPypi ? parsePypiPath(selectedFilePath) : null;
+
+  React.useEffect(() => {
+    if (isMaven) setActiveSnippetTab('maven');
+    else if (isNpm) setActiveSnippetTab('npm');
+    else if (isDocker) setActiveSnippetTab('docker-pull');
+    else if (isPypi) setActiveSnippetTab('pip-index');
+  }, [selectedFilePath, selectedRepo, isMaven, isNpm, isDocker, isPypi]);
+
+  if (!isAuthenticated) {
+    return (
+      <div className="glass-panel rounded-3xl p-12 text-center max-w-lg mx-auto my-12 space-y-6 border border-slate-800 shadow-2xl">
+        <div className="w-16 h-16 rounded-2xl bg-gradient-to-tr from-blue-600 to-indigo-600 flex items-center justify-center mx-auto shadow-lg shadow-blue-500/20">
+          <ShieldAlert className="w-8 h-8 text-white" />
+        </div>
+        <div className="space-y-2">
+          <h2 className="text-xl font-bold text-slate-100">Sign In Required</h2>
+          <p className="text-sm text-slate-400">
+            Please sign in to browse repositories, inspect artifacts, and verify integrity checksums.
+          </p>
+        </div>
+        <Button
+          type="primary"
+          size="large"
+          icon={<LogIn className="w-4 h-4" />}
+          onClick={openLoginModal}
+          className="bg-blue-600 hover:bg-blue-500 border-none font-semibold text-sm h-11 px-8 rounded-xl shadow-lg shadow-blue-600/30 flex items-center gap-2 mx-auto"
+        >
+          Sign In Now
+        </Button>
+      </div>
+    );
+  }
 
   // Handle default selection when repos load
   React.useEffect(() => {
@@ -57,6 +352,13 @@ export const StorageExplorer: React.FC = () => {
     setCopiedHash(type);
     message.success(`${type.toUpperCase()} copied to clipboard`);
     setTimeout(() => setCopiedHash(''), 2000);
+  };
+
+  const handleCopySnippet = (text: string, key: string) => {
+    navigator.clipboard.writeText(text);
+    setCopiedSnippetKey(key);
+    message.success('Snippet copied to clipboard');
+    setTimeout(() => setCopiedSnippetKey(''), 2000);
   };
 
   const handleDelete = () => {
@@ -285,8 +587,61 @@ export const StorageExplorer: React.FC = () => {
                 </div>
               </div>
 
+              {/* Dependency Snippets Panel */}
+              {(() => {
+                let snippets: { key: string; label: string; code: string }[] = [];
+                if (mavenDep) {
+                  snippets = getMavenDependencySnippets(mavenDep);
+                } else if (npmDep) {
+                  snippets = getNpmDependencySnippets(npmDep);
+                } else if (dockerDep) {
+                  snippets = getDockerDependencySnippets(dockerDep);
+                } else if (pypiDep) {
+                  snippets = getPypiDependencySnippets(pypiDep, selectedRepo);
+                }
+
+                if (snippets.length === 0) return null;
+
+                return (
+                  <div className="space-y-3 pt-2 border-t border-slate-800/60">
+                    <div className="flex items-center gap-2 text-xs font-semibold text-slate-300">
+                      <Terminal className="w-4 h-4 text-blue-400" />
+                      <span>Dependency Declaration</span>
+                    </div>
+                    
+                    <div className="bg-slate-950/80 rounded-xl border border-slate-800 overflow-hidden">
+                      <Tabs
+                        activeKey={activeSnippetTab}
+                        onChange={setActiveSnippetTab}
+                        size="small"
+                        type="card"
+                        className="snippet-tabs"
+                        items={snippets.map((snippet) => ({
+                          key: snippet.key,
+                          label: <span className="text-[11px] font-medium px-1">{snippet.label}</span>,
+                          children: (
+                            <div className="relative p-3 font-mono text-xs text-slate-300 bg-slate-950 min-h-[75px] flex items-center justify-between group">
+                              <pre className="m-0 overflow-x-auto whitespace-pre-wrap select-all max-w-[90%] leading-relaxed">
+                                {snippet.code}
+                              </pre>
+                              <Button
+                                type="text"
+                                size="small"
+                                icon={copiedSnippetKey === snippet.key ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5 text-slate-400" />}
+                                onClick={() => handleCopySnippet(snippet.code, snippet.key)}
+                                className="absolute top-2.5 right-2.5 opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity bg-slate-900 border border-slate-800 hover:bg-slate-850"
+                              />
+                            </div>
+                          )
+                        }))}
+                      />
+                    </div>
+                  </div>
+                );
+              })()}
+
               {/* Checksum Hashes Panel */}
-              <div className="space-y-3 pt-2">
+              <div className="space-y-3 pt-2 border-t border-slate-800/60">
                 <div className="flex items-center gap-2 text-xs font-semibold text-slate-300">
                   <ShieldCheck className="w-4 h-4 text-emerald-400" />
                   <span>Integrity Checksums (SHA1 / MD5 / SHA256)</span>
