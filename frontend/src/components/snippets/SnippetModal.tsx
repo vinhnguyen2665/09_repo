@@ -57,8 +57,8 @@ export const SnippetModal: React.FC<SnippetModalProps> = ({
   <servers>
     <server>
       <id>zero9repo</id>
-      <username>admin</username>
-      <password>admin123</password> <!-- or your z9r_ API Token -->
+      <username>your_username</username>
+      <password>your_password_or_api_key</password> 
     </server>
   </servers>
   <mirrors>
@@ -93,8 +93,8 @@ repositories {
     maven {
         url "${origin}/repository/${selectedRepoName}/"
         credentials {
-            username = "admin"
-            password = "admin123" // or z9r_ API Token
+            username = "your_username"
+            password = "your_password_or_api_key" // or z9r_ API Token
         }
     }
 }
@@ -104,8 +104,8 @@ publishing {
         maven {
             url = "${origin}/repository/maven-private/"
             credentials {
-                username = "admin"
-                password = "admin123"
+                username = "your_username"
+                password = "your_password_or_api_key"
             }
         }
     }

@@ -22,8 +22,8 @@ class Repository(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String(64), unique=True, index=True, nullable=False)
-    format = Column(Enum(RepoFormat), nullable=False)
-    type = Column(Enum(RepoType), nullable=False)
+    format = Column(Enum(RepoFormat, native_enum=False), nullable=False)
+    type = Column(Enum(RepoType, native_enum=False), nullable=False)
     description = Column(String(255), default="")
     is_online = Column(Boolean, default=True, nullable=False)
     

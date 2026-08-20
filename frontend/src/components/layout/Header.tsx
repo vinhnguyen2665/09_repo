@@ -47,7 +47,14 @@ export const Header: React.FC<HeaderProps> = ({ onOpenTokens, onOpenSnippet }) =
       key: 'logout',
       icon: <LogOut className="w-4 h-4 text-rose-400" />,
       danger: true,
-      label: <span onClick={logout}>Sign Out</span>,
+      label: (
+        <span onClick={(e) => {
+          e.stopPropagation();
+          logout();
+        }}>
+          Sign Out
+        </span>
+      ),
     },
   ];
 
