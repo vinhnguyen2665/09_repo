@@ -62,7 +62,7 @@ For every package ecosystem, Zero9Repo supports 3 distinct repository types:
 
 1. Clone the repository:
    ```bash
-   git clone https://github.com/your-username/Zero9Repo.git
+   git clone https://github.com/vinhnguyen2665/09_repo.git
    cd Zero9Repo
    ```
 
