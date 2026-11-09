@@ -62,8 +62,8 @@ Với mỗi định dạng package (Maven, NPM, Docker, PyPI), Zero9Repo hỗ tr
 
 1. Clone mã nguồn về máy:
    ```bash
-   git clone https://github.com/your-username/Zero9Repo.git
-   cd Zero9Repo
+   git clone git clone https://github.com/vinhnguyen2665/09_repo.git
+   cd 09_repo
    ```
 
 2. Khởi chạy toàn bộ hệ thống bằng Docker Compose:
