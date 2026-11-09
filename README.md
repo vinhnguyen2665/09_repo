@@ -63,7 +63,7 @@ For every package ecosystem, Zero9Repo supports 3 distinct repository types:
 1. Clone the repository:
    ```bash
    git clone https://github.com/vinhnguyen2665/09_repo.git
-   cd Zero9Repo
+   cd 09_repo
    ```
 
 2. Start services with Docker Compose:
