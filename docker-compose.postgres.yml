@@ -1,0 +1,36 @@
+# Run Zero9Repo with PostgreSQL instead of SQLite.
+#
+# Starts a bundled PostgreSQL container next to the app:
+#   docker-compose -f docker-compose.yml -f docker-compose.postgres.yml up -d --build
+#
+# To use a PostgreSQL server already running on your host instead, see the
+# "PostgreSQL" section of README.md (no need for this file).
+services:
+  zero9repo:
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://postgres:postgres@postgres:5432/zero9repo
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  postgres:
+    image: postgres:17-alpine
+    container_name: zero9repo-postgres
+    restart: unless-stopped
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=zero9repo
+    ports:
+      - "5432:5432"
+    volumes:
+      - zero9repo_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U postgres -d zero9repo" ]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  zero9repo_pgdata:
+    driver: local

@@ -25,8 +25,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy backend application source
 COPY backend/app ./app
 
-# Copy built frontend assets to static dist
-COPY --from=frontend-builder /app/frontend/dist ./frontend/dist
+# Copy built frontend assets into the backend package (served from app/ui)
+# vite.config.ts builds to ../backend/app/ui => /app/backend/app/ui in the builder stage
+COPY --from=frontend-builder /app/backend/app/ui ./app/ui
 
 # Persistent data directory
 VOLUME ["/app/data"]

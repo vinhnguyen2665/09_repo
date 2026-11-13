@@ -8,7 +8,7 @@ from fastapi.responses import FileResponse
 from sqlalchemy import select
 
 from app.core.config import settings
-from app.core.database import engine, Base, AsyncSessionLocal
+from app.core.database import engine, Base, AsyncSessionLocal, ensure_database_exists
 from app.core.security import get_password_hash
 from app.models.user import User, UserRole
 from app.models.repository import Repository, RepoFormat, RepoType
@@ -29,6 +29,10 @@ async def init_db_and_seed():
     """
     Creates tables and seeds default admin user and default repositories if not exist.
     """
+    db_url = engine.url.render_as_string(hide_password=True)
+    logger.info(f"Using database: {db_url}")
+    await ensure_database_exists()
+
     logger.info("Initializing database tables...")
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
@@ -188,9 +192,9 @@ app.include_router(docker_router)
 app.include_router(dispatcher_router)
 
 # Mount frontend static distribution if available
-frontend_dist = Path("../../frontend/dist").resolve()
-if not frontend_dist.exists():
-    frontend_dist = Path("./frontend/dist").resolve()
+# Built frontend lives in backend/app/ui (output of `npm run build` in frontend/),
+# i.e. /app/app/ui inside the Docker image.
+frontend_dist = Path(__file__).resolve().parent / "ui"
 
 if frontend_dist.exists() and (frontend_dist / "index.html").exists():
     app.mount("/assets", StaticFiles(directory=str(frontend_dist / "assets")), name="assets")

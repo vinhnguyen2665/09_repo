@@ -81,7 +81,7 @@ For every package ecosystem, Zero9Repo supports 3 distinct repository types:
    - **Default Username**: `admin`
    - **Default Password**: `admin123`
 
-All persistent data (SQLite database, cached packages, and uploaded artifacts) is stored safely inside the `zero9repo_data` volume (or `./data`).
+All persistent data (SQLite database by default — see the **Database Configuration** section below for PostgreSQL, cached packages, and uploaded artifacts) is stored safely inside the `zero9repo_data` volume (or `./data`).
 
 ---
 
@@ -99,6 +99,84 @@ docker run -d \
   -e SECRET_KEY="your-production-secret-key" \
   -e ADMIN_USERNAME="admin" \
   -e ADMIN_PASSWORD="admin123" \
+  zero9repo:latest
+```
+
+---
+
+### Method 3: Run Directly from Source (without Docker)
+
+Runs the production build on the host: the backend serves both the API and the built web dashboard on a single port.
+
+**Prerequisites**: Python 3.12+, Node.js 20+ and npm. Optionally a PostgreSQL server (see the **Database Configuration** section below).
+
+1. Build the frontend (output goes to `backend/app/ui`, which the backend serves automatically):
+   ```bash
+   cd frontend
+   npm ci
+   npm run build
+   cd ..
+   ```
+
+2. Install backend dependencies:
+   ```bash
+   cd backend
+   python -m venv venv
+   # Linux/macOS:
+   source venv/bin/activate
+   # Windows (PowerShell):
+   .\venv\Scripts\Activate.ps1
+
+   pip install -r requirements.txt
+   ```
+
+3. Create the configuration file and adjust it (database, `SECRET_KEY`, admin account):
+   ```bash
+   cp .env.sample .env        # Windows: copy .env.sample .env
+   ```
+
+4. Start the server (run from the `backend/` folder — `.env` and the `./data` directory are resolved relative to it):
+   ```bash
+   uvicorn app.main:app --host 0.0.0.0 --port 8000
+   ```
+
+5. Open `http://localhost:8000` and sign in with `admin` / `admin123`.
+
+Uploaded artifacts and proxy cache are stored in `backend/data/` (plus the SQLite file `backend/data/zero9repo.db` when using SQLite).
+
+> To keep it running in the background on Linux, wrap the command in a systemd service, e.g. `ExecStart=/path/to/09_repo/backend/venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000` with `WorkingDirectory=/path/to/09_repo/backend`.
+
+---
+
+## 🗄️ Database Configuration (SQLite / PostgreSQL)
+
+SQLite is the default and needs no setup. To use PostgreSQL, set the following in `backend/.env` (or as environment variables):
+
+```dotenv
+DB_TYPE=postgresql
+DB_HOST=localhost
+DB_PORT=5432
+DB_USER=postgres
+DB_PASSWORD=postgres
+DB_NAME=zero9repo
+```
+
+- The database `zero9repo` is created automatically on first start if the user has the `CREATEDB` privilege (the default `postgres` superuser does). Otherwise create it first: `createdb -U postgres zero9repo`.
+- Tables and the default admin/repositories are created on startup, exactly as with SQLite.
+- Alternatively set a full URL, which overrides all `DB_*` values: `DATABASE_URL=postgresql+asyncpg://postgres:postgres@localhost:5432/zero9repo`.
+- Switching databases does not migrate existing data; the new database starts empty. Artifact files in `data/storage` are not touched.
+
+**With Docker Compose and a bundled PostgreSQL container:**
+```bash
+docker-compose -f docker-compose.yml -f docker-compose.postgres.yml up -d --build
+```
+
+**With Docker and PostgreSQL running on the host (`localhost:5432`):** inside a container `localhost` is the container itself, so point to the host instead:
+```bash
+docker run -d --name zero9repo-app -p 8000:8000 \
+  --add-host=host.docker.internal:host-gateway \
+  -v $(pwd)/data:/app/data \
+  -e DATABASE_URL="postgresql+asyncpg://postgres:postgres@host.docker.internal:5432/zero9repo" \
   zero9repo:latest
 ```
 
@@ -124,6 +202,9 @@ source venv/bin/activate
 
 # Install dependencies
 pip install -r requirements.txt
+
+# Optional: copy the config and set DB_TYPE=postgresql to use PostgreSQL
+cp .env.sample .env
 
 # Run backend server
 uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
@@ -308,6 +389,7 @@ twine upload --repository zero9repo dist/*
 │   │   ├── models/               # SQLAlchemy Models (User, ApiToken, Repository, Artifact)
 │   │   ├── schemas/              # Pydantic Request/Response Models
 │   │   ├── services/             # Storage Engine, Proxy Client, Maven/NPM/Docker/PyPI Engines
+│   │   ├── ui/                   # Built Web UI (output of `npm run build`, git-ignored)
 │   │   └── main.py               # FastAPI App & Startup Seeding
 │   ├── tests/                    # End-to-End Test Suite
 │   └── requirements.txt          # Python Dependencies
@@ -324,6 +406,7 @@ twine upload --repository zero9repo dist/*
 ├── data/                         # Persistent Storage (SQLite DB, Uploaded & Cached Packages)
 ├── Dockerfile                    # Multi-stage Container Build
 ├── docker-compose.yml            # Production Compose Stack
+├── docker-compose.postgres.yml   # Optional PostgreSQL override
 ├── README.md                     # English Documentation
 └── README.vi.md                  # Vietnamese Documentation
 ```

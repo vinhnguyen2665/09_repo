@@ -1,6 +1,7 @@
 import os
 from pathlib import Path
 from typing import Optional
+from urllib.parse import quote_plus
 
 from dotenv import load_dotenv
 from pydantic import model_validator
@@ -28,26 +29,48 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 7  # 7 days
 
     # Database
-    DB_TYPE: str = os.getenv("DB_TYPE", "sqlite")
-    DB_HOST: str = os.getenv("DB_HOST", "localhost")
-    DB_PORT: Optional[int] = os.getenv("DB_PORT", 5432)
-    DB_USER: str = os.getenv("DB_USER", "postgres")
-    DB_PASSWORD: str = os.getenv("DB_PASSWORD", "")
-    DB_NAME: str = os.getenv("DB_NAME", "zero9repo")
+    # DB_TYPE: "sqlite" (default) | "postgresql" (alias: "postgres") | "mysql"
+    # Setting DATABASE_URL directly overrides every DB_* value below.
+    DB_TYPE: str = "sqlite"
+    DB_HOST: str = "localhost"
+    DB_PORT: Optional[int] = None  # defaults: 5432 for PostgreSQL, 3306 for MySQL
+    DB_USER: str = "postgres"
+    DB_PASSWORD: str = "postgres"
+    DB_NAME: str = "zero9repo"
     DATABASE_URL: Optional[str] = None
 
     @model_validator(mode="after")
     def compute_database_url(self) -> 'Settings':
+        db_type = (self.DB_TYPE or "sqlite").strip().lower()
+        if db_type in ("postgres", "pg"):
+            db_type = "postgresql"
+        self.DB_TYPE = db_type
+
         if not self.DATABASE_URL:
-            if self.DB_TYPE == "sqlite":
+            user = quote_plus(self.DB_USER)
+            password = quote_plus(self.DB_PASSWORD)
+            if db_type == "sqlite":
                 self.DATABASE_URL = "sqlite+aiosqlite:///./data/zero9repo.db"
-            elif self.DB_TYPE == "postgresql":
+            elif db_type == "postgresql":
                 port = self.DB_PORT or 5432
-                self.DATABASE_URL = f"postgresql+asyncpg://{self.DB_USER}:{self.DB_PASSWORD}@{self.DB_HOST}:{port}/{self.DB_NAME}"
-            elif self.DB_TYPE == "mysql":
+                self.DATABASE_URL = f"postgresql+asyncpg://{user}:{password}@{self.DB_HOST}:{port}/{self.DB_NAME}"
+            elif db_type == "mysql":
                 port = self.DB_PORT or 3306
-                self.DATABASE_URL = f"mysql+aiomysql://{self.DB_USER}:{self.DB_PASSWORD}@{self.DB_HOST}:{port}/{self.DB_NAME}"
+                self.DATABASE_URL = f"mysql+aiomysql://{user}:{password}@{self.DB_HOST}:{port}/{self.DB_NAME}"
+            else:
+                raise ValueError(f"Unsupported DB_TYPE '{self.DB_TYPE}'. Use sqlite, postgresql or mysql.")
+        elif self.DATABASE_URL.startswith(("postgresql://", "postgres://")):
+            # Plain PostgreSQL URLs need the async driver prefix
+            self.DATABASE_URL = "postgresql+asyncpg://" + self.DATABASE_URL.split("://", 1)[1]
         return self
+
+    @property
+    def is_sqlite(self) -> bool:
+        return self.DATABASE_URL.startswith("sqlite")
+
+    @property
+    def is_postgresql(self) -> bool:
+        return self.DATABASE_URL.startswith("postgresql")
 
     # Storage Directory
     BASE_DATA_DIR: Path = Path("./data")

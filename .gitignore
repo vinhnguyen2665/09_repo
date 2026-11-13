@@ -64,6 +64,7 @@ htmlcov/
 node_modules/
 frontend/node_modules/
 frontend/dist/
+backend/app/ui/
 frontend/build/
 .npm
 .eslintcache

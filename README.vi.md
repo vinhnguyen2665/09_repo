@@ -62,7 +62,7 @@ Với mỗi định dạng package (Maven, NPM, Docker, PyPI), Zero9Repo hỗ tr
 
 1. Clone mã nguồn về máy:
    ```bash
-   git clone git clone https://github.com/vinhnguyen2665/09_repo.git
+   git clone https://github.com/vinhnguyen2665/09_repo.git
    cd 09_repo
    ```
 
@@ -81,7 +81,7 @@ Với mỗi định dạng package (Maven, NPM, Docker, PyPI), Zero9Repo hỗ tr
    - **Tài khoản mặc định**: `admin`
    - **Mật khẩu mặc định**: `admin123`
 
-Toàn bộ dữ liệu (cơ sở dữ liệu SQLite, các artifact tải lên và cache proxy) được lưu trữ an toàn trong volume `zero9repo_data` (hoặc thư mục `./data`).
+Toàn bộ dữ liệu (cơ sở dữ liệu SQLite mặc định — xem mục **Cấu Hình Cơ Sở Dữ Liệu** bên dưới để dùng PostgreSQL, các artifact tải lên và cache proxy) được lưu trữ an toàn trong volume `zero9repo_data` (hoặc thư mục `./data`).
 
 ---
 
@@ -99,6 +99,84 @@ docker run -d \
   -e SECRET_KEY="chuoi-khoa-bao-mat-production-2026" \
   -e ADMIN_USERNAME="admin" \
   -e ADMIN_PASSWORD="admin123" \
+  zero9repo:latest
+```
+
+---
+
+### Cách 3: Chạy Trực Tiếp Từ Mã Nguồn (Không Dùng Docker)
+
+Chạy bản production ngay trên máy: backend phục vụ cả API lẫn giao diện Web Dashboard đã build trên cùng một cổng.
+
+**Yêu cầu**: Python 3.12+, Node.js 20+ và npm. Tuỳ chọn: một PostgreSQL server (xem mục **Cấu Hình Cơ Sở Dữ Liệu** bên dưới).
+
+1. Build frontend (kết quả nằm ở `backend/app/ui`, backend sẽ tự động phục vụ thư mục này):
+   ```bash
+   cd frontend
+   npm ci
+   npm run build
+   cd ..
+   ```
+
+2. Cài đặt thư viện cho backend:
+   ```bash
+   cd backend
+   python -m venv venv
+   # Linux/macOS:
+   source venv/bin/activate
+   # Windows (PowerShell):
+   .\venv\Scripts\Activate.ps1
+
+   pip install -r requirements.txt
+   ```
+
+3. Tạo file cấu hình và chỉnh sửa (database, `SECRET_KEY`, tài khoản admin):
+   ```bash
+   cp .env.sample .env        # Windows: copy .env.sample .env
+   ```
+
+4. Khởi chạy server (chạy trong thư mục `backend/` — file `.env` và thư mục `./data` được tính theo thư mục này):
+   ```bash
+   uvicorn app.main:app --host 0.0.0.0 --port 8000
+   ```
+
+5. Mở `http://localhost:8000` và đăng nhập bằng `admin` / `admin123`.
+
+Artifact tải lên và cache proxy được lưu trong `backend/data/` (cùng file SQLite `backend/data/zero9repo.db` nếu dùng SQLite).
+
+> Để chạy nền trên Linux, có thể tạo một systemd service, ví dụ `ExecStart=/duong/dan/09_repo/backend/venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000` với `WorkingDirectory=/duong/dan/09_repo/backend`.
+
+---
+
+## 🗄️ Cấu Hình Cơ Sở Dữ Liệu (SQLite / PostgreSQL)
+
+Mặc định dùng SQLite, không cần cài đặt gì thêm. Để dùng PostgreSQL, khai báo trong `backend/.env` (hoặc biến môi trường):
+
+```dotenv
+DB_TYPE=postgresql
+DB_HOST=localhost
+DB_PORT=5432
+DB_USER=postgres
+DB_PASSWORD=postgres
+DB_NAME=zero9repo
+```
+
+- Database `zero9repo` được tự động tạo ở lần khởi động đầu tiên nếu user có quyền `CREATEDB` (superuser `postgres` mặc định có quyền này). Nếu không, hãy tạo trước: `createdb -U postgres zero9repo`.
+- Các bảng, tài khoản admin và repository mặc định được tạo khi khởi động, giống hệt khi dùng SQLite.
+- Hoặc khai báo URL đầy đủ (sẽ ghi đè mọi giá trị `DB_*`): `DATABASE_URL=postgresql+asyncpg://postgres:postgres@localhost:5432/zero9repo`.
+- Đổi database không tự chuyển dữ liệu cũ; database mới sẽ bắt đầu trống. File artifact trong `data/storage` không bị ảnh hưởng.
+
+**Docker Compose kèm container PostgreSQL:**
+```bash
+docker-compose -f docker-compose.yml -f docker-compose.postgres.yml up -d --build
+```
+
+**Docker kết nối PostgreSQL đang chạy trên máy host (`localhost:5432`):** bên trong container, `localhost` là chính container, nên cần trỏ về máy host:
+```bash
+docker run -d --name zero9repo-app -p 8000:8000 \
+  --add-host=host.docker.internal:host-gateway \
+  -v $(pwd)/data:/app/data \
+  -e DATABASE_URL="postgresql+asyncpg://postgres:postgres@host.docker.internal:5432/zero9repo" \
   zero9repo:latest
 ```
 
@@ -124,6 +202,9 @@ source venv/bin/activate
 
 # Cài đặt các thư viện phụ thuộc
 pip install -r requirements.txt
+
+# Tuỳ chọn: copy file cấu hình, đặt DB_TYPE=postgresql để dùng PostgreSQL
+cp .env.sample .env
 
 # Khởi chạy server FastAPI
 uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
@@ -308,6 +389,7 @@ twine upload --repository zero9repo dist/*
 │   │   ├── models/               # Model SQLAlchemy (User, ApiToken, Repository, Artifact)
 │   │   ├── schemas/              # Schema Pydantic cho Request & Response
 │   │   ├── services/             # Engine lưu trữ, Proxy Client, Xử lý Maven/NPM/Docker/PyPI
+│   │   ├── ui/                   # Giao diện Web đã build (kết quả `npm run build`, không commit)
 │   │   └── main.py               # Ứng dụng chính FastAPI & Cơ chế tự động seed dữ liệu
 │   ├── tests/                    # Bộ kiểm thử End-to-End toàn diện
 │   └── requirements.txt          # Danh sách thư viện Python
@@ -324,6 +406,7 @@ twine upload --repository zero9repo dist/*
 ├── data/                         # Thư mục dữ liệu bền vững (SQLite DB, Uploads & Proxy Cache)
 ├── Dockerfile                    # File build Docker đa tầng (Multi-stage)
 ├── docker-compose.yml            # File cấu hình triển khai Docker Compose
+├── docker-compose.postgres.yml   # Tuỳ chọn: chạy kèm PostgreSQL
 ├── README.md                     # Tài liệu tiếng Anh
 └── README.vi.md                  # Tài liệu tiếng Việt
 ```

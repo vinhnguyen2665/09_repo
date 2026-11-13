@@ -1,0 +1,18 @@
+{
+    "sourceFile": "docker-compose.yml",
+    "activeCommit": 0,
+    "commits": [
+        {
+            "activePatchIndex": 0,
+            "patches": [
+                {
+                    "date": 1794561308139,
+                    "content": "Index: \n===================================================================\n--- \n+++ \n"
+                }
+            ],
+            "date": 1794561308139,
+            "name": "Commit-0",
+            "content": "services:\n  zero9repo:\n    build:\n      context: .\n      dockerfile: Dockerfile\n    container_name: zero9repo-manager\n    restart: unless-stopped\n    ports:\n      - \"8000:8000\"\n    environment:\n      - HOST=0.0.0.0\n      - PORT=8000\n      - SECRET_KEY=zero9repo-production-key-change-me-2026\n      - DATABASE_URL=sqlite+aiosqlite:////app/data/zero9repo.db\n      - ADMIN_USERNAME=admin\n      - ADMIN_PASSWORD=admin123\n      - ADMIN_EMAIL=admin@zero9repo.io\n    volumes:\n      - zero9repo_data:/app/data\n    healthcheck:\n      test: [\"CMD\", \"curl\", \"-f\", \"http://localhost:8000/api/stats/health\"]\n      interval: 30s\n      timeout: 10s\n      retries: 3\n      start_period: 10s\n\nvolumes:\n  zero9repo_data:\n    driver: local\n"
+        }
+    ]
+}

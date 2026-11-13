@@ -69,7 +69,7 @@ async def create_token(
         name=req.name,
         token_hash=token_hash,
         token_prefix=prefix,
-        created_at=datetime.datetime.utcnow(),
+        created_at=datetime.datetime.now(datetime.timezone.utc),
     )
     db.add(token_obj)
     await db.commit()

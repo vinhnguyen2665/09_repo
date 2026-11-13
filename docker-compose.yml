@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   zero9repo:
     build:
@@ -20,7 +18,7 @@ services:
     volumes:
       - zero9repo_data:/app/data
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/api/stats/health"]
+      test: [ "CMD", "curl", "-f", "http://localhost:8000/api/stats/health" ]
       interval: 30s
       timeout: 10s
       retries: 3
