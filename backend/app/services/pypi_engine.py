@@ -43,55 +43,99 @@ class PyPIEngine:
         parts = re.split(r"[-_](?=\d)", base)
         return self._normalize_name(parts[0]) if parts else self._normalize_name(base)
 
-    async def _get_or_fetch_upstream_mapping(self, repo: Repository, norm_name: str) -> Dict[str, Dict[str, str]]:
+    async def _get_or_fetch_upstream_mapping(
+        self,
+        repo: Repository,
+        norm_name: str,
+        refresh: bool = False
+    ) -> Dict[str, Dict[str, str]]:
         """
-        Returns a mapping of {filename: {"url": full_url, "hash": hash_suffix}}
+        Returns a mapping of {filename: {"url": full_url, "hash": hash_suffix, "requires_python": str}}
         Caches locally in .metadata/pypi/{norm_name}.json inside storage.
+        Supports both PEP 691 JSON (application/vnd.pypi.simple.v1+json) and PEP 503 HTML (text/html).
         """
         meta_rel = f".metadata/pypi/{norm_name}.json"
+        cached_mapping: Dict[str, Dict[str, str]] = {}
         if await storage_service.file_exists(repo.name, meta_rel):
             try:
                 raw = await storage_service.read_bytes(repo.name, meta_rel)
                 data = json.loads(raw.decode("utf-8"))
-                if isinstance(data, dict):
-                    return data
+                if isinstance(data, dict) and data:
+                    cached_mapping = data
+                    if not refresh:
+                        return cached_mapping
             except Exception:
                 pass
 
-        mapping: Dict[str, Dict[str, str]] = {}
         if not repo.upstream_url:
-            return mapping
+            return cached_mapping
 
+        mapping: Dict[str, Dict[str, str]] = {}
         upstream_url = self._build_upstream_simple_url(repo.upstream_url, norm_name)
         try:
             async with httpx.AsyncClient(
                 follow_redirects=True,
                 timeout=15.0,
-                headers={"Accept": "text/html, application/vnd.pypi.simple.v1+json", "User-Agent": "pip/23.0"}
+                headers={
+                    "Accept": "application/vnd.pypi.simple.v1+json, text/html;q=0.9",
+                    "User-Agent": "pip/24.0"
+                }
             ) as client:
                 resp = await client.get(upstream_url)
                 if resp.status_code == 200:
-                    href_matches = re.findall(r'<a\s+(?:[^>]*?\s+)?href="([^"]+)"[^>]*>([^<]+)</a>', resp.text)
-                    for raw_href, raw_text in href_matches:
-                        fn = raw_text.strip()
-                        clean_href = raw_href.strip()
-                        hash_match = re.search(r'#(sha256=[a-f0-9]+)', clean_href)
-                        hash_suffix = f"#{hash_match.group(1)}" if hash_match else ""
-                        orig_url_without_hash = clean_href.split("#")[0]
-                        full_download_url = urllib.parse.urljoin(upstream_url, orig_url_without_hash)
-                        mapping[fn] = {
-                            "url": full_download_url,
-                            "hash": hash_suffix
-                        }
+                    content_type = resp.headers.get("content-type", "").lower()
+                    text_stripped = resp.text.lstrip()
+                    if "json" in content_type or text_stripped.startswith("{"):
+                        json_data = resp.json()
+                        for file_obj in json_data.get("files", []):
+                            fn = (file_obj.get("filename") or "").strip()
+                            raw_url = (file_obj.get("url") or "").strip()
+                            if not fn or not raw_url:
+                                continue
+                            hashes = file_obj.get("hashes") or {}
+                            sha256_val = hashes.get("sha256")
+                            if sha256_val:
+                                hash_suffix = f"#sha256={sha256_val}"
+                            else:
+                                hash_match = re.search(r'#(sha256=[a-f0-9]+)', raw_url)
+                                hash_suffix = f"#{hash_match.group(1)}" if hash_match else ""
+                            orig_url_without_hash = raw_url.split("#")[0]
+                            full_download_url = urllib.parse.urljoin(upstream_url, orig_url_without_hash)
+                            req_py = file_obj.get("requires-python") or ""
+                            mapping[fn] = {
+                                "url": full_download_url,
+                                "hash": hash_suffix,
+                                "requires_python": req_py
+                            }
+                    else:
+                        anchor_matches = re.findall(r'<a\s+([^>]+)>([^<]+)</a>', resp.text)
+                        for attrs_str, raw_text in anchor_matches:
+                            fn = raw_text.strip()
+                            href_m = re.search(r'href=["\']([^"\']+)["\']', attrs_str)
+                            if not fn or not href_m:
+                                continue
+                            clean_href = href_m.group(1).strip()
+                            hash_match = re.search(r'#(sha256=[a-f0-9]+)', clean_href)
+                            hash_suffix = f"#{hash_match.group(1)}" if hash_match else ""
+                            orig_url_without_hash = clean_href.split("#")[0]
+                            full_download_url = urllib.parse.urljoin(upstream_url, orig_url_without_hash)
+                            req_py_m = re.search(r'data-requires-python=["\']([^"\']+)["\']', attrs_str)
+                            req_py = html.unescape(req_py_m.group(1)) if req_py_m else ""
+                            mapping[fn] = {
+                                "url": full_download_url,
+                                "hash": hash_suffix,
+                                "requires_python": req_py
+                            }
 
                     if mapping:
                         await storage_service.save_bytes(
                             repo.name, meta_rel, json.dumps(mapping, indent=2).encode("utf-8")
                         )
+                        return mapping
         except Exception:
             pass
 
-        return mapping
+        return cached_mapping
 
     async def get_simple_index(
         self,
@@ -117,9 +161,9 @@ class PyPIEngine:
 
         package_names = set()
         for fn in filenames:
-            parts = fn.split("-")
-            if parts:
-                package_names.add(self._normalize_name(parts[0]))
+            pkg_name = self._extract_package_name_from_filename(fn)
+            if pkg_name:
+                package_names.add(pkg_name)
 
         links_html = "".join(f'<a href="{pkg}/">{pkg}</a><br/>\n' for pkg in sorted(package_names))
         html_doc = f"""<!DOCTYPE html>
@@ -153,13 +197,14 @@ class PyPIEngine:
             )
             res = await db.execute(stmt)
             for art in res.scalars().all():
-                fn_norm = self._normalize_name(art.filename.split("-")[0])
+                fn_norm = self._extract_package_name_from_filename(art.filename)
                 if fn_norm == norm_name:
                     file_url = f"/repository/{repo.name}/packages/{art.filename}"
                     hash_part = f"#sha256={art.sha256}" if art.sha256 else ""
                     links.append({
                         "href": f"{file_url}{hash_part}",
-                        "text": art.filename
+                        "text": art.filename,
+                        "requires_python": ""
                     })
 
         if repo.type == RepoType.HOSTED:
@@ -169,12 +214,14 @@ class PyPIEngine:
 
         elif repo.type == RepoType.PROXY:
             await collect_local_files(repo.name)
-            mapping = await self._get_or_fetch_upstream_mapping(repo, norm_name)
+            mapping = await self._get_or_fetch_upstream_mapping(repo, norm_name, refresh=True)
             for fn, info in mapping.items():
-                hash_part = info.get("hash", "")
+                hash_part = info.get("hash", "") if isinstance(info, dict) else ""
+                req_py = info.get("requires_python", "") if isinstance(info, dict) else ""
                 links.append({
                     "href": f"/repository/{repo.name}/packages/{fn}{hash_part}",
-                    "text": fn
+                    "text": fn,
+                    "requires_python": req_py
                 })
 
             if not links:
@@ -192,12 +239,14 @@ class PyPIEngine:
                     await collect_local_files(member_repo.name)
                 elif member_repo.type == RepoType.PROXY and member_repo.upstream_url:
                     await collect_local_files(member_repo.name)
-                    mapping = await self._get_or_fetch_upstream_mapping(member_repo, norm_name)
+                    mapping = await self._get_or_fetch_upstream_mapping(member_repo, norm_name, refresh=True)
                     for fn, info in mapping.items():
-                        hash_part = info.get("hash", "")
+                        hash_part = info.get("hash", "") if isinstance(info, dict) else ""
+                        req_py = info.get("requires_python", "") if isinstance(info, dict) else ""
                         links.append({
                             "href": f"/repository/{repo.name}/packages/{fn}{hash_part}",
-                            "text": fn
+                            "text": fn,
+                            "requires_python": req_py
                         })
 
             if not links:
@@ -211,7 +260,12 @@ class PyPIEngine:
                 seen_texts.add(l["text"])
                 unique_links.append(l)
 
-        links_html = "".join(f'<a href="{l["href"]}">{html.escape(l["text"])}</a><br/>\n' for l in unique_links)
+        def render_link(l: Dict[str, str]) -> str:
+            req_py = l.get("requires_python", "")
+            req_attr = f' data-requires-python="{html.escape(req_py)}"' if req_py else ""
+            return f'<a href="{l["href"]}"{req_attr}>{html.escape(l["text"])}</a><br/>\n'
+
+        links_html = "".join(render_link(l) for l in unique_links)
         html_doc = f"""<!DOCTYPE html>
 <html>
 <head><title>Links for {package_name}</title></head>
@@ -249,8 +303,11 @@ class PyPIEngine:
             # Lazy fetch from upstream PyPI
             if repo.upstream_url:
                 pkg_name = self._extract_package_name_from_filename(filename)
-                mapping = await self._get_or_fetch_upstream_mapping(repo, pkg_name)
+                mapping = await self._get_or_fetch_upstream_mapping(repo, pkg_name, refresh=False)
                 upstream_info = self._find_in_mapping(mapping, filename)
+                if not upstream_info:
+                    mapping = await self._get_or_fetch_upstream_mapping(repo, pkg_name, refresh=True)
+                    upstream_info = self._find_in_mapping(mapping, filename)
                 if upstream_info:
                     upstream_download_url = upstream_info["url"] if isinstance(upstream_info, dict) else str(upstream_info)
                     art = await proxy_client.fetch_and_cache(db, repo, rel_path, upstream_path=upstream_download_url)
@@ -272,8 +329,11 @@ class PyPIEngine:
 
                 if member_repo.type == RepoType.PROXY and member_repo.upstream_url:
                     pkg_name = self._extract_package_name_from_filename(filename)
-                    mapping = await self._get_or_fetch_upstream_mapping(member_repo, pkg_name)
+                    mapping = await self._get_or_fetch_upstream_mapping(member_repo, pkg_name, refresh=False)
                     upstream_info = self._find_in_mapping(mapping, filename)
+                    if not upstream_info:
+                        mapping = await self._get_or_fetch_upstream_mapping(member_repo, pkg_name, refresh=True)
+                        upstream_info = self._find_in_mapping(mapping, filename)
                     if upstream_info:
                         upstream_download_url = upstream_info["url"] if isinstance(upstream_info, dict) else str(upstream_info)
                         art = await proxy_client.fetch_and_cache(db, member_repo, rel_path, upstream_path=upstream_download_url)

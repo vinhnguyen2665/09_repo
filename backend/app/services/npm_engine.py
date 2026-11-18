@@ -38,14 +38,7 @@ class NPMEngine:
 
         # 2. Proxy repo
         if repo.type == RepoType.PROXY:
-            # Check if cached metadata exists
-            if await storage_service.file_exists(repo.name, meta_path):
-                raw = await storage_service.read_bytes(repo.name, meta_path)
-                data = json.loads(raw.decode("utf-8"))
-                self._rewrite_tarball_urls(data, repo.name, base_url)
-                return JSONResponse(content=data)
-
-            # Lazy fetch from upstream
+            data = None
             if repo.upstream_url:
                 upstream = f"{repo.upstream_url.rstrip('/')}/{package_name}"
                 try:
@@ -53,14 +46,19 @@ class NPMEngine:
                         resp = await client.get(upstream)
                         if resp.status_code == 200:
                             data = resp.json()
-                            # Cache metadata
                             await storage_service.save_bytes(
                                 repo.name, meta_path, json.dumps(data, indent=2).encode("utf-8")
                             )
-                            self._rewrite_tarball_urls(data, repo.name, base_url)
-                            return JSONResponse(content=data)
                 except Exception:
                     pass
+
+            if not data and await storage_service.file_exists(repo.name, meta_path):
+                raw = await storage_service.read_bytes(repo.name, meta_path)
+                data = json.loads(raw.decode("utf-8"))
+
+            if data:
+                self._rewrite_tarball_urls(data, repo.name, base_url)
+                return JSONResponse(content=data)
             raise HTTPException(status_code=404, detail=f"Package {package_name} not found in proxy upstream")
 
         # 3. Group repo
@@ -78,10 +76,7 @@ class NPMEngine:
 
                 member_meta_path = f"{package_name}/package.json"
                 data = None
-                if await storage_service.file_exists(member_repo.name, member_meta_path):
-                    raw = await storage_service.read_bytes(member_repo.name, member_meta_path)
-                    data = json.loads(raw.decode("utf-8"))
-                elif member_repo.type == RepoType.PROXY and member_repo.upstream_url:
+                if member_repo.type == RepoType.PROXY and member_repo.upstream_url:
                     upstream = f"{member_repo.upstream_url.rstrip('/')}/{package_name}"
                     try:
                         async with httpx.AsyncClient(follow_redirects=True, timeout=15.0) as client:
@@ -94,6 +89,10 @@ class NPMEngine:
                     except Exception:
                         pass
 
+                if not data and await storage_service.file_exists(member_repo.name, member_meta_path):
+                    raw = await storage_service.read_bytes(member_repo.name, member_meta_path)
+                    data = json.loads(raw.decode("utf-8"))
+
                 if data:
                     if not package_info:
                         package_info = {
@@ -102,10 +101,14 @@ class NPMEngine:
                             "description": data.get("description", ""),
                             "readme": data.get("readme", "")
                         }
-                    if "versions" in data:
-                        merged_versions.update(data["versions"])
-                    if "dist-tags" in data:
-                        dist_tags.update(data["dist-tags"])
+                    if "versions" in data and isinstance(data["versions"], dict):
+                        for ver_k, ver_v in data["versions"].items():
+                            if ver_k not in merged_versions:
+                                merged_versions[ver_k] = ver_v
+                    if "dist-tags" in data and isinstance(data["dist-tags"], dict):
+                        for tag_k, tag_v in data["dist-tags"].items():
+                            if tag_k not in dist_tags:
+                                dist_tags[tag_k] = tag_v
 
             if package_info:
                 package_info["versions"] = merged_versions

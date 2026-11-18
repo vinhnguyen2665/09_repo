@@ -18,6 +18,15 @@ from app.services.storage import storage_service
 
 router = APIRouter(tags=["Package Repositories Gateway"])
 
+def get_effective_base_url(request: Request) -> str:
+    base = str(request.base_url).rstrip("/")
+    proto = request.headers.get("x-forwarded-proto")
+    if proto:
+        proto_clean = proto.split(",")[0].strip().lower()
+        if proto_clean in ("http", "https") and "://" in base:
+            base = f"{proto_clean}://{base.split('://', 1)[1]}"
+    return base
+
 async def get_repo(repo_name: str, db: AsyncSession) -> Repository:
     stmt = select(Repository).where(Repository.name == repo_name)
     res = await db.execute(stmt)
@@ -39,7 +48,7 @@ async def repository_get_gateway(
 ):
     repo = await get_repo(repo_name, db)
     range_header = request.headers.get("Range")
-    base_url = str(request.base_url)
+    base_url = get_effective_base_url(request)
     clean_path = path.strip("/")
 
     # MAVEN

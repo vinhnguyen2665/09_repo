@@ -40,15 +40,16 @@ class MavenEngine:
                 return storage_service.create_streaming_response(repo.name, relative_path, range_header=range_header)
             raise HTTPException(status_code=404, detail=f"Artifact {relative_path} not found in hosted repo {repo.name}")
 
-        # 2. If it's a PROXY repo: Check local cache first; if missing, fetch & cache from upstream
+        # 2. If it's a PROXY repo: Check local cache first (except mutable maven-metadata.xml); if missing, fetch & cache from upstream
         if repo.type == RepoType.PROXY:
-            if await storage_service.file_exists(repo.name, relative_path):
+            is_metadata = relative_path.endswith("maven-metadata.xml")
+            if not is_metadata and await storage_service.file_exists(repo.name, relative_path):
                 await self._increment_download(db, repo.name, relative_path)
                 return storage_service.create_streaming_response(repo.name, relative_path, range_header=range_header)
             
             # Fetch from upstream and cache locally
             artifact = await proxy_client.fetch_and_cache(db, repo, relative_path)
-            if artifact:
+            if artifact or await storage_service.file_exists(repo.name, relative_path):
                 return storage_service.create_streaming_response(repo.name, relative_path, range_header=range_header)
             raise HTTPException(status_code=404, detail=f"Artifact {relative_path} not found in upstream for {repo.name}")
 
@@ -164,13 +165,11 @@ class MavenEngine:
                 continue
 
             xml_bytes = None
+            if member_repo.type == RepoType.PROXY and member_repo.upstream_url:
+                # Attempt to fetch latest proxy metadata from upstream first
+                await proxy_client.fetch_and_cache(db, member_repo, metadata_path)
             if await storage_service.file_exists(member_repo.name, metadata_path):
                 xml_bytes = await storage_service.read_bytes(member_repo.name, metadata_path)
-            elif member_repo.type == RepoType.PROXY and member_repo.upstream_url:
-                # Attempt to fetch proxy metadata
-                art = await proxy_client.fetch_and_cache(db, member_repo, metadata_path)
-                if art:
-                    xml_bytes = await storage_service.read_bytes(member_repo.name, metadata_path)
 
             if xml_bytes:
                 try:
