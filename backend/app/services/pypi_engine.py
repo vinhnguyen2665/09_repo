@@ -25,6 +25,15 @@ class PyPIEngine:
             return f"{base}/{pkg_name}/"
         return f"{base}/simple/{pkg_name}/"
 
+    def _find_in_mapping(self, mapping: Dict[str, Any], filename: str) -> Optional[Any]:
+        if filename in mapping:
+            return mapping[filename]
+        fn_lower = filename.lower()
+        for k, v in mapping.items():
+            if k.lower() == fn_lower:
+                return v
+        return None
+
     def _extract_package_name_from_filename(self, filename: str) -> str:
         base = filename
         for ext in [".tar.gz", ".whl", ".zip", ".tar.bz2", ".tgz"]:
@@ -241,7 +250,7 @@ class PyPIEngine:
             if repo.upstream_url:
                 pkg_name = self._extract_package_name_from_filename(filename)
                 mapping = await self._get_or_fetch_upstream_mapping(repo, pkg_name)
-                upstream_info = mapping.get(filename)
+                upstream_info = self._find_in_mapping(mapping, filename)
                 if upstream_info:
                     upstream_download_url = upstream_info["url"] if isinstance(upstream_info, dict) else str(upstream_info)
                     art = await proxy_client.fetch_and_cache(db, repo, rel_path, upstream_path=upstream_download_url)
@@ -264,7 +273,7 @@ class PyPIEngine:
                 if member_repo.type == RepoType.PROXY and member_repo.upstream_url:
                     pkg_name = self._extract_package_name_from_filename(filename)
                     mapping = await self._get_or_fetch_upstream_mapping(member_repo, pkg_name)
-                    upstream_info = mapping.get(filename)
+                    upstream_info = self._find_in_mapping(mapping, filename)
                     if upstream_info:
                         upstream_download_url = upstream_info["url"] if isinstance(upstream_info, dict) else str(upstream_info)
                         art = await proxy_client.fetch_and_cache(db, member_repo, rel_path, upstream_path=upstream_download_url)
