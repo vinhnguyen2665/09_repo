@@ -35,13 +35,48 @@ class PyPIEngine:
         return None
 
     def _extract_package_name_from_filename(self, filename: str) -> str:
+        # PEP 427: wheel filenames are {distribution}-{version}(-{build})?-{python}-{abi}-{platform}.whl
+        # where distribution name has all hyphens replaced with underscores.
+        if filename.endswith(".whl"):
+            return self._normalize_name(filename.split("-")[0])
+
         base = filename
-        for ext in [".tar.gz", ".whl", ".zip", ".tar.bz2", ".tgz"]:
+        for ext in [".tar.gz", ".zip", ".tar.bz2", ".tgz"]:
             if base.endswith(ext):
                 base = base[:-len(ext)]
                 break
-        parts = re.split(r"[-_](?=\d)", base)
-        return self._normalize_name(parts[0]) if parts else self._normalize_name(base)
+
+        # Match {name}-{version} where version starts with digits.digits (e.g. 2.1.0)
+        m = re.match(r"^(.+?)-(\d+\.\d+.*)$", base)
+        if m:
+            return self._normalize_name(m.group(1))
+
+        # Fallback: greedy match up to last hyphen before a digit
+        m2 = re.match(r"^(.+)-(\d.*)$", base)
+        if m2:
+            return self._normalize_name(m2.group(1))
+
+        return self._normalize_name(base.split("-")[0])
+
+    async def _find_in_cached_metadata(self, repo: Repository, filename: str) -> Optional[Any]:
+        """
+        Fallback search across all cached .metadata/pypi/*.json files in this repo
+        in case a distribution filename does not match its package name.
+        """
+        meta_dir = storage_service.base_dir / repo.name / ".metadata" / "pypi"
+        if not meta_dir.exists() or not meta_dir.is_dir():
+            return None
+        for json_file in meta_dir.glob("*.json"):
+            try:
+                raw = await storage_service.read_bytes(repo.name, f".metadata/pypi/{json_file.name}")
+                data = json.loads(raw.decode("utf-8"))
+                if isinstance(data, dict):
+                    found = self._find_in_mapping(data, filename)
+                    if found:
+                        return found
+            except Exception:
+                continue
+        return None
 
     async def _get_or_fetch_upstream_mapping(
         self,
@@ -308,6 +343,8 @@ class PyPIEngine:
                 if not upstream_info:
                     mapping = await self._get_or_fetch_upstream_mapping(repo, pkg_name, refresh=True)
                     upstream_info = self._find_in_mapping(mapping, filename)
+                if not upstream_info:
+                    upstream_info = await self._find_in_cached_metadata(repo, filename)
                 if upstream_info:
                     upstream_download_url = upstream_info["url"] if isinstance(upstream_info, dict) else str(upstream_info)
                     art = await proxy_client.fetch_and_cache(db, repo, rel_path, upstream_path=upstream_download_url)
@@ -334,6 +371,8 @@ class PyPIEngine:
                     if not upstream_info:
                         mapping = await self._get_or_fetch_upstream_mapping(member_repo, pkg_name, refresh=True)
                         upstream_info = self._find_in_mapping(mapping, filename)
+                    if not upstream_info:
+                        upstream_info = await self._find_in_cached_metadata(member_repo, filename)
                     if upstream_info:
                         upstream_download_url = upstream_info["url"] if isinstance(upstream_info, dict) else str(upstream_info)
                         art = await proxy_client.fetch_and_cache(db, member_repo, rel_path, upstream_path=upstream_download_url)

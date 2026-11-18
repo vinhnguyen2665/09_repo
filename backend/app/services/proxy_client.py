@@ -11,10 +11,10 @@ from app.models.repository import Repository
 logger = logging.getLogger("zero9repo.proxy")
 
 class ProxyClient:
-    def __init__(self, timeout: float = 30.0):
+    def __init__(self, timeout: float = 120.0):
         self.timeout = timeout
         self.client = httpx.AsyncClient(
-            timeout=timeout,
+            timeout=httpx.Timeout(connect=15.0, read=120.0, write=30.0, pool=30.0),
             follow_redirects=True,
             headers={"User-Agent": "Zero9Repo-Proxy/1.0.0"}
         )
