@@ -39,9 +39,12 @@ class ProxyClient:
             return None
 
         # Build full upstream URL
-        base_upstream = repo.upstream_url.rstrip("/")
-        rel = (upstream_path or relative_path).lstrip("/")
-        full_upstream_url = f"{base_upstream}/{rel}"
+        if upstream_path and (upstream_path.startswith("http://") or upstream_path.startswith("https://")):
+            full_upstream_url = upstream_path
+        else:
+            base_upstream = repo.upstream_url.rstrip("/")
+            rel = (upstream_path or relative_path).lstrip("/")
+            full_upstream_url = f"{base_upstream}/{rel}"
 
         req_headers = {"User-Agent": "Zero9Repo-Proxy/1.0.0"}
         if custom_headers:

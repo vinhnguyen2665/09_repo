@@ -98,7 +98,14 @@ async def repository_head_gateway(
                 "Accept-Ranges": "bytes"
             }
         )
-    raise HTTPException(status_code=404, detail="Artifact not found")
+    # If not directly in repo storage (e.g. Group repository or uncached Proxy),
+    # delegate to GET gateway logic to verify existence / fetch & cache and return headers
+    get_resp = await repository_get_gateway(repo_name, path, request, db)
+    return Response(
+        status_code=get_resp.status_code,
+        headers=dict(get_resp.headers),
+        media_type=get_resp.media_type
+    )
 
 # ----------------- PUT Handlers (Upload / Publish) -----------------
 
